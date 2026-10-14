@@ -1,0 +1,157 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'michaelbacus@sec.edu.ph' ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isGroupMember(groupId) {
+      return isSignedIn() && exists(/databases/$(database)/documents/groups/$(groupId)/members/$(request.auth.uid));
+    }
+
+    function isGroupOwner(groupId) {
+      return isSignedIn() && get(/databases/$(database)/documents/groups/$(groupId)).data.ownerId == request.auth.uid;
+    }
+
+    function isGroupLeaderOrCoLeader(groupId) {
+      return isSignedIn() && (
+        isGroupOwner(groupId) ||
+        isAdmin() ||
+        (exists(/databases/$(database)/documents/groups/$(groupId)/members/$(request.auth.uid)) &&
+         (get(/databases/$(database)/documents/groups/$(groupId)/members/$(request.auth.uid)).data.role == 'co-leader' ||
+          get(/databases/$(database)/documents/groups/$(groupId)/members/$(request.auth.uid)).data.role == 'owner'))
+      );
+    }
+
+    function isGroupAuthorized(groupId) {
+      return isGroupOwner(groupId) || isGroupMember(groupId) || isAdmin();
+    }
+
+    // Entity Validators
+    function isValidUser(data) {
+      return data.keys().hasAll(['id', 'name', 'email', 'createdAt']) &&
+        data.id is string &&
+        data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+        data.email is string && data.email.size() > 0 && data.email.size() <= 120 &&
+        data.createdAt is string && data.createdAt.size() <= 40;
+    }
+
+    function isValidGroup(data) {
+      return data.keys().hasAll(['id', 'name', 'ownerId', 'inviteCode', 'createdAt']) &&
+        data.id is string && isValidId(data.id) &&
+        data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+        data.ownerId is string &&
+        data.inviteCode is string && data.inviteCode.size() >= 4 && data.inviteCode.size() <= 10 &&
+        data.createdAt is string && data.createdAt.size() <= 40;
+    }
+
+    function isValidGroupMember(data) {
+      return data.keys().hasAll(['userId', 'name', 'role', 'joinedAt']) &&
+        data.userId is string && data.userId.size() <= 128 &&
+        data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+        (data.role == 'owner' || data.role == 'co-leader' || data.role == 'admin' || data.role == 'member') &&
+        data.joinedAt is string && data.joinedAt.size() <= 40;
+    }
+
+    function isValidSchedule(data) {
+      return data.keys().hasAll(['id', 'groupId', 'title', 'scheduleType', 'startDate', 'startTime', 'creatorId', 'createdAt']) &&
+        data.id is string && isValidId(data.id) &&
+        data.groupId is string && isValidId(data.groupId) &&
+        data.title is string && data.title.size() > 0 && data.title.size() <= 120 &&
+        (data.scheduleType == 'single' || data.scheduleType == 'range' || data.scheduleType == 'recurring') &&
+        data.startDate is string && data.startDate.size() <= 30 &&
+        data.startTime is string && data.startTime.size() <= 20 &&
+        data.creatorId is string && data.creatorId.size() <= 128 &&
+        data.createdAt is string && data.createdAt.size() <= 40;
+    }
+
+    function isValidAcknowledgement(data) {
+      return data.keys().hasAll(['userId', 'userName', 'status', 'acknowledgedAt']) &&
+        data.userId is string && data.userId == request.auth.uid &&
+        data.userName is string && data.userName.size() > 0 && data.userName.size() <= 100 &&
+        (data.status == 'coming' || data.status == 'dismissed' || data.status == 'pending') &&
+        (!('reason' in data) || (data.reason is string && data.reason.size() <= 300)) &&
+        data.acknowledgedAt is string && data.acknowledgedAt.size() <= 40;
+    }
+
+    // User profiles
+    match /users/{userId} {
+      allow get, list: if isSignedIn();
+      allow create: if isOwner(userId) && isValidId(userId) && isValidUser(incoming()) &&
+        (
+          incoming().role == 'user' ||
+          (request.auth.token.email == 'michaelbacus@sec.edu.ph' && incoming().role == 'admin') ||
+          isAdmin()
+        );
+      allow update: if isValidId(userId) && (
+        isAdmin() ||
+        (isOwner(userId) && incoming().role == existing().role)
+      );
+      allow delete: if isAdmin() && isValidId(userId);
+    }
+
+    // Groups
+    match /groups/{groupId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(groupId) && isValidGroup(incoming());
+      allow update: if isSignedIn() && isValidId(groupId) && isGroupAuthorized(groupId);
+      allow delete: if isSignedIn() && isValidId(groupId) && (isGroupOwner(groupId) || isAdmin());
+
+      // Members subcollection
+      match /members/{memberId} {
+        allow get, list: if isSignedIn();
+        allow create: if isSignedIn() && isValidId(memberId) && isValidGroupMember(incoming());
+        allow update: if isSignedIn() && isValidId(memberId) && (request.auth.uid == memberId || isGroupOwner(groupId) || isAdmin());
+        allow delete: if isSignedIn() && isValidId(memberId) && (request.auth.uid == memberId || isGroupOwner(groupId) || isAdmin());
+      }
+
+      // Schedules subcollection (Edit, Delete, Ring Trigger restricted strictly to group leader & admin)
+      match /schedules/{scheduleId} {
+        allow get, list: if isSignedIn();
+        allow create: if isSignedIn() && isValidId(scheduleId) && isGroupLeaderOrCoLeader(groupId) &&
+          isValidSchedule(incoming()) && incoming().groupId == groupId;
+        allow update: if isSignedIn() && isValidId(scheduleId) && isGroupLeaderOrCoLeader(groupId);
+        allow delete: if isSignedIn() && isValidId(scheduleId) && isGroupLeaderOrCoLeader(groupId);
+
+        // Acknowledgements subcollection
+        match /acknowledgements/{ackUserId} {
+          allow get, list: if isSignedIn();
+          allow create, update: if isSignedIn() && isValidId(ackUserId) && ackUserId == request.auth.uid &&
+            isValidAcknowledgement(incoming());
+          allow delete: if isSignedIn() && isValidId(ackUserId) && (ackUserId == request.auth.uid || isAdmin());
+        }
+      }
+    }
+  }
+}

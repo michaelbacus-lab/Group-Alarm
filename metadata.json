@@ -1,0 +1,8 @@
+{
+  "name": "Group Alarm",
+  "description": "Group alarm & reminder coordination app with real-time schedules, member attendance, and high-urgency alarms.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
