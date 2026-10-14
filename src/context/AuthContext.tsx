@@ -115,6 +115,51 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
+  // Sync real-time online presence and heartbeat to Firestore
+  useEffect(() => {
+    if (!firebaseUser) return;
+
+    const setPresence = async (online: boolean) => {
+      try {
+        const userRef = doc(db, 'users', firebaseUser.uid);
+        await updateDoc(userRef, {
+          isOnline: online,
+          lastSeen: new Date().toISOString(),
+        });
+      } catch {
+        // Non-fatal presence error
+      }
+    };
+
+    // Mark online immediately
+    setPresence(true);
+
+    // Heartbeat every 30 seconds while browser is active and online
+    const interval = setInterval(() => {
+      if (typeof navigator !== 'undefined' && navigator.onLine) {
+        setPresence(true);
+      }
+    }, 30000);
+
+    const handleOnline = () => setPresence(true);
+    const handleOffline = () => setPresence(false);
+    const handleBeforeUnload = () => {
+      setPresence(false);
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      setPresence(false);
+    };
+  }, [firebaseUser]);
+
   const signInWithGoogle = async () => {
     setLoading(true);
     try {

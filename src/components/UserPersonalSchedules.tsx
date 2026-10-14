@@ -11,7 +11,7 @@ import {
   Users,
 } from 'lucide-react';
 import { Group, Schedule, AppUser, Acknowledgement } from '../types';
-import { listenGroupSchedules, listenGroupAllAcknowledgements } from '../services/scheduleService';
+import { listenGroupSchedules, listenGroupAllAcknowledgements, stopActiveAlarm } from '../services/scheduleService';
 import { listenGroupMembers } from '../services/groupService';
 
 interface UserPersonalSchedulesProps {
@@ -166,6 +166,17 @@ export const UserPersonalSchedules: React.FC<UserPersonalSchedulesProps> = ({
             const comingCount = acks.filter((a) => a.status === 'coming').length;
             const dismissedCount = acks.filter((a) => a.status === 'dismissed').length;
             const pendingCount = Math.max(0, totalMembers - comingCount - dismissedCount);
+            const hasCurrentUserResponded = acks.some(
+              (a) => a.userId === currentUser.id && (a.status === 'coming' || a.status === 'dismissed')
+            );
+            const isAllMembersResponded = totalMembers > 0 && pendingCount === 0;
+            const isAlarmRecent = (sch.activeAlarmTimestamp || 0) > 0 && (Date.now() - (sch.activeAlarmTimestamp || 0) < 180000);
+            const isActivelyRinging = isAlarmRecent && !isAllMembersResponded;
+
+            // Auto-heal alarm timestamp in Firestore if all members have responded
+            if ((sch.activeAlarmTimestamp || 0) > 0 && isAllMembersResponded) {
+              stopActiveAlarm(sch.groupId, sch.id).catch(() => {});
+            }
 
             return (
               <div
@@ -173,14 +184,16 @@ export const UserPersonalSchedules: React.FC<UserPersonalSchedulesProps> = ({
                 onClick={() => onSelectSchedule(sch, sch.group)}
                 className="p-4 rounded-2xl bg-[#F4F7FD] border border-slate-200 hover:border-blue-300 hover:shadow-xs transition-all cursor-pointer group"
               >
-                {/* Active alarm banner - no stray 0 */}
-                {(sch.activeAlarmTimestamp || 0) > 0 && (
+                {/* Active alarm banner only if ringing AND not all members responded */}
+                {isActivelyRinging && (
                   <div className="mb-2 py-1 px-2.5 rounded-lg bg-red-600 text-white text-xs font-black uppercase tracking-wider flex items-center justify-between animate-pulse">
                     <span className="flex items-center gap-1.5">
                       <span className="w-2 h-2 rounded-full bg-white animate-ping" />
                       ALARM ACTIVELY RINGING
                     </span>
-                    <span>TAP TO RESPOND</span>
+                    <span>
+                      {hasCurrentUserResponded ? `${comingCount} COMING · ${pendingCount} PENDING` : 'TAP TO RESPOND'}
+                    </span>
                   </div>
                 )}
 

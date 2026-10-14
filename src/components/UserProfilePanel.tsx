@@ -13,21 +13,16 @@ import {
   Users,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useOnlineStatus } from '../lib/useOnlineStatus';
 
 interface UserProfilePanelProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-const PRESET_AVATARS = [
-  'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-  'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
-  'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80',
-  'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80',
-];
-
 export const UserProfilePanel: React.FC<UserProfilePanelProps> = ({ isOpen, onClose }) => {
   const { user, updateUserProfile, logout } = useAuth();
+  const isOnline = useOnlineStatus();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [displayName, setDisplayName] = useState(user?.name || '');
@@ -101,13 +96,40 @@ export const UserProfilePanel: React.FC<UserProfilePanelProps> = ({ isOpen, onCl
         {/* Top Header */}
         <div>
           <div className="bg-[#1D4ED8] text-white px-6 py-5 flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <User className="w-5 h-5 text-blue-200" />
-              <h2 className="text-lg font-extrabold tracking-tight">Account Profile</h2>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-blue-600 ring-2 ring-white/20 flex items-center justify-center font-bold text-white shrink-0 overflow-hidden shadow-xs text-sm">
+                {avatar ? (
+                  <img src={avatar} alt={user.name} className="w-full h-full object-cover" />
+                ) : (
+                  <span>{user.name.substring(0, 1).toUpperCase()}</span>
+                )}
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-base font-extrabold tracking-tight truncate max-w-[200px]">
+                    {user.name}
+                  </h2>
+                  {/* Status indicator (online/offline) dot */}
+                  <span
+                    className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ring-2 ring-white/30 ${
+                      isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-slate-400'
+                    }`}
+                    title={isOnline ? 'Online' : 'Offline'}
+                  />
+                </div>
+                <div className="text-[11px] text-blue-200 font-medium flex items-center gap-1.5">
+                  <span>{user.role === 'admin' ? 'Administrator' : 'Standard User'}</span>
+                  <span>•</span>
+                  <span className={isOnline ? 'text-emerald-300 font-bold' : 'text-slate-300 font-medium'}>
+                    {isOnline ? 'Online' : 'Offline'}
+                  </span>
+                </div>
+              </div>
             </div>
             <button
               onClick={onClose}
               className="p-1.5 rounded-xl hover:bg-white/10 text-white/90 transition-colors cursor-pointer"
+              title="Close Profile"
             >
               <X className="w-5 h-5" />
             </button>
@@ -156,31 +178,19 @@ export const UserProfilePanel: React.FC<UserProfilePanelProps> = ({ isOpen, onCl
                 />
               </div>
 
-              <div className="mt-3">
+              <div className="mt-3 flex flex-col items-center gap-1.5">
                 <span className="text-[11px] font-semibold text-slate-500">
-                  Click camera to upload custom photo, or pick an avatar:
+                  Tap camera icon to upload photo (under 500KB)
                 </span>
-                <div className="flex items-center justify-center gap-2 mt-2">
-                  {PRESET_AVATARS.map((url, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => setAvatar(url)}
-                      className="w-8 h-8 rounded-full overflow-hidden border-2 hover:border-blue-500 transition-all cursor-pointer"
-                    >
-                      <img src={url} alt={`Preset ${idx}`} className="w-full h-full object-cover" />
-                    </button>
-                  ))}
-                  {avatar && (
-                    <button
-                      type="button"
-                      onClick={() => setAvatar('')}
-                      className="text-[10px] text-slate-500 hover:text-rose-600 underline pl-1"
-                    >
-                      Clear
-                    </button>
-                  )}
-                </div>
+                {avatar && (
+                  <button
+                    type="button"
+                    onClick={() => setAvatar('')}
+                    className="text-[11px] font-bold text-rose-600 hover:text-rose-700 hover:underline cursor-pointer"
+                  >
+                    Remove Photo
+                  </button>
+                )}
               </div>
             </div>
 
@@ -238,6 +248,28 @@ export const UserProfilePanel: React.FC<UserProfilePanelProps> = ({ isOpen, onCl
                   }`}
                 >
                   {user.role === 'admin' ? 'Admin' : 'User'}
+                </span>
+              </div>
+
+              {/* Network Status Row */}
+              <div className="flex items-center justify-between text-slate-600">
+                <span className="flex items-center gap-2">
+                  <span
+                    className={`w-2 h-2 rounded-full shrink-0 ${
+                      isOnline ? 'bg-emerald-500 ring-2 ring-emerald-200' : 'bg-slate-400 ring-2 ring-slate-200'
+                    }`}
+                  />
+                  <span>Connection Status</span>
+                </span>
+                <span
+                  className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold flex items-center gap-1.5 ${
+                    isOnline
+                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-300'
+                      : 'bg-slate-100 text-slate-600 border border-slate-300'
+                  }`}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
+                  {isOnline ? 'Online' : 'Offline'}
                 </span>
               </div>
 

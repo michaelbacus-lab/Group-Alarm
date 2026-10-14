@@ -4,11 +4,13 @@ import { Group, Schedule, GroupMember } from './types';
 import {
   listenUserParticipatingGroups,
   listenGroupMembers,
+  syncGroupMemberCount,
 } from './services/groupService';
 import {
   listenGroupSchedules,
   triggerActiveAlarm,
   hasUserConfirmedComing,
+  hasUserResponded,
 } from './services/scheduleService';
 import { LoginScreen } from './components/LoginScreen';
 import { GroupList } from './components/GroupList';
@@ -16,12 +18,14 @@ import { ScheduleList } from './components/ScheduleList';
 import { ScheduleFormModal } from './components/ScheduleFormModal';
 import { ScheduleDetailModal } from './components/ScheduleDetailModal';
 import { CreateGroupModal } from './components/CreateGroupModal';
+import { EditGroupModal } from './components/EditGroupModal';
 import { JoinGroupModal } from './components/JoinGroupModal';
 import { AlarmOverlay } from './components/AlarmOverlay';
 import { UserProfilePanel } from './components/UserProfilePanel';
 import { AdminUserManagement } from './components/AdminUserManagement';
 import { AdminGlobalSchedules } from './components/AdminGlobalSchedules';
 import { UserPersonalSchedules } from './components/UserPersonalSchedules';
+import { useOnlineStatus } from './lib/useOnlineStatus';
 import { alarmAudio } from './lib/alarmAudio';
 import {
   Bell,
@@ -54,12 +58,38 @@ function MainApp() {
   // Modals
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
+  const [isEditGroupOpen, setIsEditGroupOpen] = useState(false);
+  const [groupToEdit, setGroupToEdit] = useState<Group | null>(null);
   const [isJoinGroupOpen, setIsJoinGroupOpen] = useState(false);
   const [isCreateScheduleOpen, setIsCreateScheduleOpen] = useState(false);
   const [selectedSchedule, setSelectedSchedule] = useState<Schedule | null>(null);
   const [activeRingingSchedule, setActiveRingingSchedule] = useState<Schedule | null>(null);
+  const [groupMemberCounts, setGroupMemberCounts] = useState<Record<string, number>>({});
 
   const isAdmin = user?.role === 'admin';
+  const isOnline = useOnlineStatus();
+
+  // Real-time tracking and auto-healing of member counts across all participating groups
+  useEffect(() => {
+    if (!user || groups.length === 0) {
+      setGroupMemberCounts({});
+      return;
+    }
+
+    const unsubs = groups.map((grp) => {
+      return listenGroupMembers(grp.id, (m) => {
+        setGroupMemberCounts((prev) => ({ ...prev, [grp.id]: m.length }));
+        // Automatically heal stale group.memberCount in Firestore if corrupted or out of sync
+        if (grp.memberCount !== m.length) {
+          syncGroupMemberCount(grp.id).catch(() => {});
+        }
+      });
+    });
+
+    return () => {
+      unsubs.forEach((u) => u());
+    };
+  }, [user, groups]);
 
   // Listen to participating groups in real-time
   // Regular users ONLY receive groups they created or joined
@@ -135,8 +165,8 @@ function MainApp() {
           const isNotDismissed = s.activeAlarmTimestamp > lastDismissed;
           if (!isRecent || !isNotDismissed) return false;
 
-          // A member who confirms "I'm Coming" stops ringing immediately and never sees the full-screen alarm again
-          if (hasUserConfirmedComing(user.id, s.id)) {
+          // A member who responds ("I'm Coming" or "Can't make it") stops ringing immediately and never sees the full-screen alarm again
+          if (hasUserConfirmedComing(user.id, s.id) || hasUserResponded(user.id, s.id)) {
             return false;
           }
 
@@ -392,21 +422,43 @@ function MainApp() {
             <button
               onClick={() => setIsProfileOpen(true)}
               className="flex items-center gap-2 p-1.5 pl-2.5 pr-3 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200/90 transition-all cursor-pointer group"
-              title="Open Account Profile"
+              title={`Open Account Profile (${isOnline ? 'Online' : 'Offline'})`}
             >
-              <div className="w-7 h-7 rounded-full bg-blue-600 text-white font-bold text-xs flex items-center justify-center shrink-0 overflow-hidden shadow-2xs">
-                {user.avatar ? (
-                  <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" />
-                ) : (
-                  user.name.substring(0, 1).toUpperCase()
-                )}
+              <div className="relative">
+                <div className="w-7 h-7 rounded-full bg-blue-600 text-white font-bold text-xs flex items-center justify-center shrink-0 overflow-hidden shadow-2xs">
+                  {user.avatar ? (
+                    <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" />
+                  ) : (
+                    user.name.substring(0, 1).toUpperCase()
+                  )}
+                </div>
+                {/* Mobile-only avatar status badge */}
+                <span
+                  className={`sm:hidden absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white ${
+                    isOnline ? 'bg-emerald-500' : 'bg-slate-400'
+                  }`}
+                  title={isOnline ? 'Online' : 'Offline'}
+                />
               </div>
               <div className="text-left hidden sm:block">
-                <div className="text-xs font-bold text-slate-800 group-hover:text-blue-700 transition-colors leading-tight">
-                  {user.name}
+                <div className="flex items-center gap-1.5 leading-tight">
+                  <span className="text-xs font-bold text-slate-800 group-hover:text-blue-700 transition-colors">
+                    {user.name}
+                  </span>
+                  {/* Small status indicator (online/offline) dot */}
+                  <span
+                    className={`inline-block w-2 h-2 rounded-full shrink-0 ${
+                      isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'
+                    }`}
+                    title={isOnline ? 'Status: Online' : 'Status: Offline'}
+                  />
                 </div>
-                <div className="text-[10px] text-slate-400 capitalize">
-                  {user.role} Account
+                <div className="text-[10px] text-slate-400 flex items-center gap-1 capitalize">
+                  <span>{user.role} Account</span>
+                  <span>•</span>
+                  <span className={isOnline ? 'text-emerald-600 font-semibold' : 'text-slate-500 font-medium'}>
+                    {isOnline ? 'Online' : 'Offline'}
+                  </span>
                 </div>
               </div>
             </button>
@@ -536,9 +588,14 @@ function MainApp() {
               <GroupList
                 groups={groups}
                 currentUser={user}
+                memberCounts={groupMemberCounts}
                 onSelectGroup={(g) => setSelectedGroup(g)}
                 onOpenCreateGroup={() => setIsCreateGroupOpen(true)}
                 onOpenJoinGroup={() => setIsJoinGroupOpen(true)}
+                onEditGroup={(g) => {
+                  setGroupToEdit(g);
+                  setIsEditGroupOpen(true);
+                }}
               />
             ) : (
               <UserPersonalSchedules
@@ -573,6 +630,25 @@ function MainApp() {
           onClose={() => setIsCreateGroupOpen(false)}
           onCreated={(newGrp) => {
             setSelectedGroup(newGrp);
+          }}
+        />
+      )}
+
+      {/* Edit Group Settings Modal (replacing logo badge) */}
+      {user && groupToEdit && isEditGroupOpen && (
+        <EditGroupModal
+          group={groupToEdit}
+          currentUser={user}
+          isOpen={isEditGroupOpen}
+          onClose={() => {
+            setIsEditGroupOpen(false);
+            setGroupToEdit(null);
+          }}
+          onUpdated={(updated) => {
+            setGroups((prev) => prev.map((g) => (g.id === updated.id ? updated : g)));
+            if (selectedGroup?.id === updated.id) {
+              setSelectedGroup(updated);
+            }
           }}
         />
       )}

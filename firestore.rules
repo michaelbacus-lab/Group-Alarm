@@ -133,7 +133,7 @@ service cloud.firestore {
         allow get, list: if isSignedIn();
         allow create: if isSignedIn() && isValidId(memberId) && isValidGroupMember(incoming());
         allow update: if isSignedIn() && isValidId(memberId) && (request.auth.uid == memberId || isGroupOwner(groupId) || isAdmin());
-        allow delete: if isSignedIn() && isValidId(memberId) && (request.auth.uid == memberId || isGroupOwner(groupId) || isAdmin());
+        allow delete: if isSignedIn() && isValidId(memberId) && (request.auth.uid == memberId || isGroupLeaderOrCoLeader(groupId) || isAdmin());
       }
 
       // Schedules subcollection (Edit, Delete, Ring Trigger restricted strictly to group leader & admin)
@@ -141,7 +141,10 @@ service cloud.firestore {
         allow get, list: if isSignedIn();
         allow create: if isSignedIn() && isValidId(scheduleId) && isGroupLeaderOrCoLeader(groupId) &&
           isValidSchedule(incoming()) && incoming().groupId == groupId;
-        allow update: if isSignedIn() && isValidId(scheduleId) && isGroupLeaderOrCoLeader(groupId);
+        allow update: if isSignedIn() && isValidId(scheduleId) && (
+          isGroupLeaderOrCoLeader(groupId) ||
+          (isGroupMember(groupId) && incoming().diff(existing()).affectedKeys().hasOnly(['activeAlarmTimestamp', 'updatedAt']) && incoming().activeAlarmTimestamp == 0)
+        );
         allow delete: if isSignedIn() && isValidId(scheduleId) && isGroupLeaderOrCoLeader(groupId);
 
         // Acknowledgements subcollection

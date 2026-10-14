@@ -12,6 +12,8 @@ export interface AppUser {
   plan?: string;
   maxMembersPerGroup?: number;
   createdAt: string;
+  isOnline?: boolean;
+  lastSeen?: string;
 }
 
 export type MemberRole = 'owner' | 'co-leader' | 'admin' | 'member';
@@ -23,6 +25,8 @@ export interface GroupMember {
   avatar?: string;
   role: MemberRole;
   joinedAt: string;
+  isOnline?: boolean;
+  lastSeen?: string;
 }
 
 export interface Group {

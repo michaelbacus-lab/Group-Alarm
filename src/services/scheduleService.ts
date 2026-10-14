@@ -2,10 +2,12 @@ import {
   collection,
   doc,
   getDoc,
+  getDocs,
   setDoc,
   onSnapshot,
   deleteDoc,
   updateDoc,
+  QueryDocumentSnapshot,
 } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 import { handleFirestoreError, OperationType } from '../lib/firestoreErrors';
@@ -270,8 +272,29 @@ export async function setScheduleAcknowledgement(
 
   try {
     await setDoc(doc(db, 'groups', groupId, 'schedules', scheduleId, 'acknowledgements', currentUser.id), cleanAck);
+    markUserResponded(currentUser.id, scheduleId);
     if (status === 'coming') {
       markUserConfirmedComing(currentUser.id, scheduleId);
+    }
+
+    // Auto-stop alarm in Firestore once all members have responded
+    try {
+      const [membersSnap, acksSnap] = await Promise.all([
+        getDocs(collection(db, 'groups', groupId, 'members')),
+        getDocs(collection(db, 'groups', groupId, 'schedules', scheduleId, 'acknowledgements')),
+      ]);
+      const totalMembers = membersSnap.size;
+      const validMemberIds = new Set(membersSnap.docs.map((d: QueryDocumentSnapshot) => d.id));
+      const respondedCount = acksSnap.docs.filter((d: QueryDocumentSnapshot) => {
+        const data = d.data() as Acknowledgement;
+        return (data.status === 'coming' || data.status === 'dismissed') && validMemberIds.has(data.userId);
+      }).length;
+
+      if (totalMembers > 0 && respondedCount >= totalMembers) {
+        await stopActiveAlarm(groupId, scheduleId);
+      }
+    } catch (e) {
+      console.warn('Auto-check all members responded error:', e);
     }
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
@@ -293,6 +316,30 @@ export function markUserConfirmedComing(userId: string, scheduleId: string) {
 export function hasUserConfirmedComing(userId: string, scheduleId: string): boolean {
   try {
     const key = `groupalarm_confirmed_coming_${userId}`;
+    const raw = localStorage.getItem(key);
+    if (!raw) return false;
+    const set = new Set<string>(JSON.parse(raw));
+    return set.has(scheduleId);
+  } catch {
+    return false;
+  }
+}
+
+export function markUserResponded(userId: string, scheduleId: string) {
+  try {
+    const key = `groupalarm_responded_${userId}`;
+    const raw = localStorage.getItem(key);
+    const set = new Set<string>(raw ? JSON.parse(raw) : []);
+    set.add(scheduleId);
+    localStorage.setItem(key, JSON.stringify(Array.from(set)));
+  } catch (e) {
+    console.error('Error saving responded state:', e);
+  }
+}
+
+export function hasUserResponded(userId: string, scheduleId: string): boolean {
+  try {
+    const key = `groupalarm_responded_${userId}`;
     const raw = localStorage.getItem(key);
     if (!raw) return false;
     const set = new Set<string>(JSON.parse(raw));

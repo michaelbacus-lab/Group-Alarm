@@ -125,7 +125,7 @@ export const AdminGlobalSchedules: React.FC<AdminGlobalSchedulesProps> = ({
           </div>
         ) : (
           filtered.map((sch) => {
-            const totalMembers = Math.min(10, groupMembersCount[sch.groupId] || sch.group.memberCount || 1);
+            const totalMembers = groupMembersCount[sch.groupId] || sch.group.memberCount || 1;
             const acks = acksMap[sch.id] || [];
             const comingCount = acks.filter((a) => a.status === 'coming').length;
             const dismissedCount = acks.filter((a) => a.status === 'dismissed').length;

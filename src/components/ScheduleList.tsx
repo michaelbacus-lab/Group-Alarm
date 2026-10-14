@@ -10,10 +10,14 @@ import {
   Check,
   Users,
   Music,
+  Settings,
+  Edit3,
 } from 'lucide-react';
 import { Group, Schedule, AppUser, GroupMember, Acknowledgement } from '../types';
-import { listenGroupAllAcknowledgements } from '../services/scheduleService';
+import { listenGroupAllAcknowledgements, stopActiveAlarm } from '../services/scheduleService';
+import { syncGroupMemberCount } from '../services/groupService';
 import { GroupMembersModal } from './GroupMembersModal';
+import { EditGroupModal } from './EditGroupModal';
 
 interface ScheduleListProps {
   group: Group;
@@ -41,6 +45,14 @@ export const ScheduleList: React.FC<ScheduleListProps> = ({
   const [viewMode, setViewMode] = useState<'cards' | 'occurrences'>('cards');
   const [acksMap, setAcksMap] = useState<Record<string, Acknowledgement[]>>({});
   const [isMembersModalOpen, setIsMembersModalOpen] = useState(false);
+  const [isEditGroupOpen, setIsEditGroupOpen] = useState(false);
+
+  // Auto-sync group.memberCount in Firestore if out of sync with actual roster length
+  useEffect(() => {
+    if (members.length > 0 && group.memberCount !== members.length) {
+      syncGroupMemberCount(group.id).catch(() => {});
+    }
+  }, [group.id, group.memberCount, members.length]);
 
   const copyInvite = () => {
     navigator.clipboard.writeText(group.inviteCode);
@@ -227,14 +239,27 @@ export const ScheduleList: React.FC<ScheduleListProps> = ({
             <ArrowLeft className="w-5 h-5" />
           </button>
 
-          {/* Group Logo / Badge in Banner */}
-          <div className="w-10 h-10 rounded-xl bg-white/20 text-white font-black text-xs flex items-center justify-center shrink-0 overflow-hidden border border-white/30 shadow-2xs">
-            {group.imageUrl ? (
-              <img src={group.imageUrl} alt={group.name} className="w-full h-full object-cover" />
-            ) : (
-              <span className="truncate px-0.5">{group.avatarInitials || group.name.slice(0, 2).toUpperCase()}</span>
+          {/* Group Logo / Badge in Banner - Clickable for Leaders / Co-Leaders to Edit */}
+          <button
+            type="button"
+            onClick={() => canManageSchedules && setIsEditGroupOpen(true)}
+            disabled={!canManageSchedules}
+            title={canManageSchedules ? "Click to edit group settings & replace logo badge" : group.name}
+            className={`relative group/badge ${canManageSchedules ? 'cursor-pointer hover:scale-105 active:scale-95' : 'cursor-default'} transition-transform shrink-0`}
+          >
+            <div className="w-10 h-10 rounded-xl bg-white/20 text-white font-black text-xs flex items-center justify-center overflow-hidden border border-white/30 shadow-2xs">
+              {group.imageUrl ? (
+                <img src={group.imageUrl} alt={group.name} className="w-full h-full object-cover" />
+              ) : (
+                <span className="truncate px-0.5">{group.avatarInitials || group.name.slice(0, 4).toUpperCase()}</span>
+              )}
+            </div>
+            {canManageSchedules && (
+              <div className="absolute inset-0 bg-black/40 rounded-xl opacity-0 group-hover/badge:opacity-100 flex items-center justify-center transition-opacity text-white">
+                <Edit3 className="w-3.5 h-3.5" />
+              </div>
             )}
-          </div>
+          </button>
 
           <div className="min-w-0">
             <h2 className="text-base sm:text-lg font-black truncate leading-tight">
@@ -258,6 +283,17 @@ export const ScheduleList: React.FC<ScheduleListProps> = ({
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
+          {/* Edit Group Settings Button */}
+          {canManageSchedules && (
+            <button
+              onClick={() => setIsEditGroupOpen(true)}
+              className="px-3 py-2 rounded-xl bg-white/15 hover:bg-white/25 text-xs font-bold text-white flex items-center gap-1.5 transition-colors cursor-pointer min-h-[44px]"
+              title="Edit group settings and logo badge"
+            >
+              <Settings className="w-4 h-4" />
+              <span className="hidden sm:inline">Settings</span>
+            </button>
+          )}
           <button
             onClick={() => setIsMembersModalOpen(true)}
             className="px-3 py-2 rounded-xl bg-white/15 hover:bg-white/25 text-xs font-bold text-white flex items-center gap-1.5 transition-colors cursor-pointer min-h-[44px]"
@@ -378,11 +414,20 @@ export const ScheduleList: React.FC<ScheduleListProps> = ({
           /* Cards View */
           <div className="p-4 space-y-3">
             {activeSchedules.map((sch) => {
-              const { comingCount, dismissedCount, pendingCount } = getScheduleStats(sch.id);
+              const { comingCount, dismissedCount, pendingCount, pendingUserIds, totalMembers } = getScheduleStats(sch.id);
               const isCreator = sch.creatorId === currentUser.id;
               const isLeader = group.ownerId === currentUser.id;
               const canRing = isLeader || isCoLeader || currentUser.role === 'admin';
               const ownershipLabel = isCreator ? 'Created by me' : 'Joined';
+              const hasCurrentUserResponded = !pendingUserIds.includes(currentUser.id);
+              const isAllMembersResponded = totalMembers > 0 && pendingCount === 0;
+              const isAlarmRecent = (sch.activeAlarmTimestamp || 0) > 0 && (Date.now() - (sch.activeAlarmTimestamp || 0) < 180000);
+              const isActivelyRinging = isAlarmRecent && !isAllMembersResponded;
+
+              // Auto-heal alarm timestamp in Firestore if all members have responded
+              if ((sch.activeAlarmTimestamp || 0) > 0 && isAllMembersResponded) {
+                stopActiveAlarm(group.id, sch.id).catch(() => {});
+              }
 
               return (
                 <div
@@ -390,14 +435,16 @@ export const ScheduleList: React.FC<ScheduleListProps> = ({
                   onClick={() => onSelectSchedule(sch)}
                   className="p-4 rounded-2xl bg-[#F4F7FD] border border-slate-200 shadow-2xs hover:shadow-xs hover:border-blue-300 transition-all cursor-pointer group relative overflow-hidden"
                 >
-                  {/* Active alarm banner if ringing - NO STRAY 0 */}
-                  {(sch.activeAlarmTimestamp || 0) > 0 && (
+                  {/* Active alarm banner only if ringing AND not all members responded */}
+                  {isActivelyRinging && (
                     <div className="mb-2 py-1 px-2.5 rounded-lg bg-red-600 text-white text-xs font-black uppercase tracking-wider flex items-center justify-between animate-pulse">
                       <span className="flex items-center gap-1.5">
                         <span className="w-2 h-2 rounded-full bg-white animate-ping" />
                         ALARM ACTIVELY RINGING
                       </span>
-                      <span>TAP TO RESPOND</span>
+                      <span>
+                        {hasCurrentUserResponded ? `${comingCount} COMING · ${pendingCount} PENDING` : 'TAP TO RESPOND'}
+                      </span>
                     </div>
                   )}
 
@@ -511,6 +558,16 @@ export const ScheduleList: React.FC<ScheduleListProps> = ({
           isOpen={isMembersModalOpen}
           onClose={() => setIsMembersModalOpen(false)}
           onLeftGroup={onBack}
+        />
+      )}
+
+      {/* Group Settings & Logo Badge Modal */}
+      {isEditGroupOpen && (
+        <EditGroupModal
+          group={group}
+          currentUser={currentUser}
+          isOpen={isEditGroupOpen}
+          onClose={() => setIsEditGroupOpen(false)}
         />
       )}
     </div>

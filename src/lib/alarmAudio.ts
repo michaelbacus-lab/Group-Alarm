@@ -31,7 +31,8 @@ class AlarmAudioSynthesizer {
   private audioCtx: AudioContext | null = null;
   private isRinging: boolean = false;
   private loopIntervalId: number | null = null;
-  private masterVolume: number = 0.8;
+  private volumeRampIntervalId: number | null = null;
+  private masterVolume: number = 0.15;
   private customAudioEl: HTMLAudioElement | null = null;
 
   private initContext() {
@@ -270,6 +271,26 @@ class AlarmAudioSynthesizer {
     if (this.isRinging) return;
     this.isRinging = true;
 
+    // Start low and ramp up volume gradually (from low to high)
+    this.masterVolume = 0.15;
+    if (this.volumeRampIntervalId !== null) {
+      clearInterval(this.volumeRampIntervalId);
+      this.volumeRampIntervalId = null;
+    }
+    this.volumeRampIntervalId = window.setInterval(() => {
+      if (!this.isRinging) return;
+      if (this.masterVolume < 1.0) {
+        this.masterVolume = Math.min(1.0, +(this.masterVolume + 0.10).toFixed(2));
+        if (this.customAudioEl) {
+          try {
+            this.customAudioEl.volume = this.masterVolume;
+          } catch {
+            // ignore
+          }
+        }
+      }
+    }, 1000);
+
     if (soundType === 'custom' && customDataUri) {
       try {
         if (!this.customAudioEl) {
@@ -313,6 +334,10 @@ class AlarmAudioSynthesizer {
    */
   public stopRinging() {
     this.isRinging = false;
+    if (this.volumeRampIntervalId !== null) {
+      clearInterval(this.volumeRampIntervalId);
+      this.volumeRampIntervalId = null;
+    }
     if (this.loopIntervalId !== null) {
       clearInterval(this.loopIntervalId);
       this.loopIntervalId = null;
@@ -325,6 +350,7 @@ class AlarmAudioSynthesizer {
         // ignore pause errors
       }
     }
+    this.masterVolume = 0.15;
   }
 
   public getIsRinging(): boolean {
@@ -348,3 +374,14 @@ class AlarmAudioSynthesizer {
 }
 
 export const alarmAudio = new AlarmAudioSynthesizer();
+
+// Global passive unlock on any user interaction so alarm sound plays unhindered
+if (typeof window !== 'undefined') {
+  const unlockEvents = ['click', 'touchstart', 'touchend', 'pointerdown', 'keydown'];
+  const unlocker = () => {
+    alarmAudio.unlockAudio();
+  };
+  unlockEvents.forEach((evt) => {
+    window.addEventListener(evt, unlocker, { passive: true, capture: true });
+  });
+}

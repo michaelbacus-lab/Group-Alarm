@@ -10,7 +10,7 @@ import {
   deleteDoc,
   updateDoc,
 } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { db, auth } from '../lib/firebase';
 import { handleFirestoreError, OperationType } from '../lib/firestoreErrors';
 import { sanitizePayload } from '../lib/sanitize';
 import { Group, GroupMember, AppUser, MemberRole, DEFAULT_MAX_MEMBERS_PER_GROUP } from '../types';
@@ -261,21 +261,44 @@ export async function removeGroupMember(groupId: string, memberId: string) {
   }
 }
 
+export async function syncGroupMemberCount(groupId: string): Promise<number> {
+  const path = `groups/${groupId}/members`;
+  try {
+    const membersSnap = await getDocs(collection(db, 'groups', groupId, 'members'));
+    const actualCount = membersSnap.size;
+    await updateDoc(doc(db, 'groups', groupId), {
+      memberCount: actualCount,
+    });
+    return actualCount;
+  } catch (error) {
+    console.error('Error syncing group member count:', error);
+    return 1;
+  }
+}
+
 export async function updateGroupMemberRole(
   groupId: string,
   memberId: string,
-  newRole: MemberRole
+  newRole: MemberRole,
+  callerUser?: AppUser
 ) {
-  const currentUid = auth.currentUser?.uid;
-  if (!currentUid) throw new Error("Unauthorized");
+  const currentUid = auth.currentUser?.uid || callerUser?.id;
+  if (!currentUid) throw new Error("Authentication required. Please sign in again.");
 
   const groupDoc = await getDoc(doc(db, 'groups', groupId));
-  const userDoc = await getDoc(doc(db, 'users', currentUid));
-  const isOwner = groupDoc.exists() && groupDoc.data()?.ownerId === currentUid;
-  const isAdmin = userDoc.exists() && userDoc.data()?.role === 'admin';
+  const isOwner = (groupDoc.exists() && groupDoc.data()?.ownerId === currentUid) || callerUser?.id === groupDoc.data()?.ownerId;
+  const isAdmin = callerUser?.role === 'admin';
 
   if (!isOwner && !isAdmin) {
-    throw new Error("Only the original group leader can manage co-leader roles.");
+    // If not immediately resolved from callerUser, check user doc
+    try {
+      const userDoc = await getDoc(doc(db, 'users', currentUid));
+      if (!userDoc.exists() || userDoc.data()?.role !== 'admin') {
+        throw new Error("Only the original group leader can manage co-leader roles.");
+      }
+    } catch {
+      throw new Error("Only the original group leader can manage co-leader roles.");
+    }
   }
 
   if (groupDoc.exists() && groupDoc.data()?.ownerId === memberId) {
@@ -306,17 +329,51 @@ export async function updateGroupBadge(
   }
 }
 
-export async function deleteGroup(groupId: string) {
-  const currentUid = auth.currentUser?.uid;
+export async function updateGroupSettings(
+  groupId: string,
+  settings: {
+    name?: string;
+    description?: string;
+    avatarInitials?: string;
+    imageUrl?: string | null;
+  }
+) {
+  const path = `groups/${groupId}`;
+  try {
+    const updateData: Record<string, unknown> = {};
+    if (settings.name !== undefined) updateData.name = settings.name.trim();
+    if (settings.description !== undefined) updateData.description = settings.description.trim() || '';
+    if (settings.avatarInitials !== undefined) {
+      updateData.avatarInitials = settings.avatarInitials.trim().slice(0, 4).toUpperCase();
+    }
+    if (settings.imageUrl !== undefined) {
+      updateData.imageUrl = settings.imageUrl ? settings.imageUrl.trim() : '';
+    }
+
+    await updateDoc(doc(db, 'groups', groupId), sanitizePayload(updateData));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+    throw error;
+  }
+}
+
+export async function deleteGroup(groupId: string, callerUser?: AppUser) {
+  const currentUid = auth.currentUser?.uid || callerUser?.id;
   if (!currentUid) throw new Error("Unauthorized");
 
   const groupDoc = await getDoc(doc(db, 'groups', groupId));
-  const userDoc = await getDoc(doc(db, 'users', currentUid));
-  const isOwner = groupDoc.exists() && groupDoc.data()?.ownerId === currentUid;
-  const isAdmin = userDoc.exists() && userDoc.data()?.role === 'admin';
+  const isOwner = (groupDoc.exists() && groupDoc.data()?.ownerId === currentUid) || callerUser?.id === groupDoc.data()?.ownerId;
+  const isAdmin = callerUser?.role === 'admin';
 
   if (!isOwner && !isAdmin) {
-    throw new Error("Only the original leader who created the group can delete it.");
+    try {
+      const userDoc = await getDoc(doc(db, 'users', currentUid));
+      if (!userDoc.exists() || userDoc.data()?.role !== 'admin') {
+        throw new Error("Only the original leader who created the group can delete it.");
+      }
+    } catch {
+      throw new Error("Only the original leader who created the group can delete it.");
+    }
   }
 
   const path = `groups/${groupId}`;

@@ -30,49 +30,54 @@ export const AlarmOverlay: React.FC<AlarmOverlayProps> = ({
   const [showDismissReasonModal, setShowDismissReasonModal] = useState(false);
   const [selectedReason, setSelectedReason] = useState<string>('');
   const [customReason, setCustomReason] = useState<string>('');
-  const [isAudioBlocked, setIsAudioBlocked] = useState(false);
 
   useEffect(() => {
-    // Attempt starting audio ringing
+    // Unlock and start gradual rising alarm audio
+    alarmAudio.unlockAudio();
     alarmAudio.startRinging(schedule.alarmSoundType || 'chime', schedule.customSoundData);
 
-    // Check if the browser blocked audio playback due to autoplay policy
-    const timer = setTimeout(() => {
-      if (alarmAudio.isAudioBlocked()) {
-        setIsAudioBlocked(true);
+    // Continuous rhythmic vibration pattern (rising urgency)
+    const triggerVibration = () => {
+      if ('vibrate' in navigator) {
+        try {
+          navigator.vibrate([400, 150, 400, 150, 800]);
+        } catch {
+          // Ignore vibration errors if blocked
+        }
       }
-    }, 400);
+    };
 
-    // Trigger device vibration if supported
-    if ('vibrate' in navigator) {
-      try {
-        navigator.vibrate([600, 250, 600, 250, 1000]);
-      } catch {
-        // Ignore vibration errors if blocked
-      }
-    }
+    triggerVibration();
+    const vibrationInterval = window.setInterval(triggerVibration, 2200);
 
     return () => {
-      clearTimeout(timer);
+      window.clearInterval(vibrationInterval);
+      if ('vibrate' in navigator) {
+        try {
+          navigator.vibrate(0);
+        } catch {}
+      }
       alarmAudio.stopRinging();
     };
   }, [schedule.alarmSoundType, schedule.customSoundData]);
 
-  const handleUserUnblockAudio = () => {
-    alarmAudio.unlockAudio();
-    alarmAudio.startRinging(schedule.alarmSoundType || 'chime', schedule.customSoundData);
-    setIsAudioBlocked(false);
-    setIsMuted(false);
+  const stopVibrationAndAudio = () => {
+    if ('vibrate' in navigator) {
+      try {
+        navigator.vibrate(0);
+      } catch {}
+    }
+    alarmAudio.stopRinging();
   };
 
   const handleSilenceSound = () => {
-    alarmAudio.stopRinging();
+    stopVibrationAndAudio();
     setIsMuted(true);
   };
 
   const handleComing = async () => {
     setHasInteracted(true);
-    alarmAudio.stopRinging();
+    stopVibrationAndAudio();
     try {
       await setScheduleAcknowledgement(schedule.groupId, schedule.id, currentUser, 'coming');
       if (schedule.creatorId === currentUser.id) {
@@ -87,12 +92,13 @@ export const AlarmOverlay: React.FC<AlarmOverlayProps> = ({
 
   const handleOpenDismiss = () => {
     // Stop loud ringing while they type reason
-    alarmAudio.stopRinging();
+    stopVibrationAndAudio();
     setShowDismissReasonModal(true);
   };
 
   const handleConfirmDismiss = async (includeReason = true) => {
     setHasInteracted(true);
+    stopVibrationAndAudio();
     const finalReason = includeReason ? (customReason.trim() || selectedReason || undefined) : undefined;
     try {
       await setScheduleAcknowledgement(
@@ -134,7 +140,10 @@ export const AlarmOverlay: React.FC<AlarmOverlayProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col items-center justify-between bg-[#0B1220] text-white p-6 sm:p-10 select-none animate-in fade-in duration-300">
+    <div
+      onPointerDownCapture={() => alarmAudio.unlockAudio()}
+      className="fixed inset-0 z-50 flex flex-col items-center justify-between bg-[#0B1220] text-white p-6 sm:p-10 select-none animate-in fade-in duration-300"
+    >
       {/* Top Header with Silence Control */}
       <div className="w-full flex items-center justify-between max-w-md pt-2">
         <div className="flex items-center gap-2">
@@ -157,18 +166,15 @@ export const AlarmOverlay: React.FC<AlarmOverlayProps> = ({
         </button>
       </div>
 
-      {/* Prominent Tap to Enable Sound Banner for Browser Autoplay Restriction */}
-      {isAudioBlocked && (
-        <div className="w-full max-w-md my-2">
-          <button
-            onClick={handleUserUnblockAudio}
-            className="w-full py-3.5 px-4 rounded-2xl bg-amber-500 hover:bg-amber-400 active:scale-98 text-slate-950 font-black text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg shadow-amber-500/30 animate-bounce cursor-pointer min-h-[44px]"
-          >
-            <Volume2 className="w-5 h-5 fill-slate-950" />
-            <span>🔊 TAP HERE TO PLAY ALARM SOUND</span>
-          </button>
+      {/* Gradual Rising Sound & Vibration Indicator */}
+      <div className="w-full max-w-md flex items-center justify-center pt-2">
+        <div className="flex items-center gap-2 px-3.5 py-1 rounded-full bg-slate-800/60 border border-slate-700/60 text-[11px] font-semibold text-slate-300 shadow-2xs">
+          <Volume2 className="w-3.5 h-3.5 text-blue-400 animate-pulse" />
+          <span>Gradual rising alarm sound</span>
+          <span className="text-slate-500">•</span>
+          <span>Vibrating</span>
         </div>
-      )}
+      </div>
 
       {/* Main Ringing Center */}
       <div className="flex flex-col items-center text-center my-auto max-w-sm">

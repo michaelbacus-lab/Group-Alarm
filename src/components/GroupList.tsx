@@ -1,21 +1,25 @@
 import React, { useState } from 'react';
-import { Plus, Users, KeyRound, ChevronRight, Search } from 'lucide-react';
+import { Plus, Users, KeyRound, ChevronRight, Search, Settings } from 'lucide-react';
 import { Group, AppUser } from '../types';
 
 interface GroupListProps {
   groups: Group[];
   currentUser: AppUser;
+  memberCounts?: Record<string, number>;
   onSelectGroup: (group: Group) => void;
   onOpenCreateGroup: () => void;
   onOpenJoinGroup: () => void;
+  onEditGroup?: (group: Group) => void;
 }
 
 export const GroupList: React.FC<GroupListProps> = ({
   groups,
   currentUser,
+  memberCounts,
   onSelectGroup,
   onOpenCreateGroup,
   onOpenJoinGroup,
+  onEditGroup,
 }) => {
   const [search, setSearch] = useState('');
 
@@ -71,6 +75,7 @@ export const GroupList: React.FC<GroupListProps> = ({
         ) : (
           filteredGroups.map((group) => {
             const isOwner = group.ownerId === currentUser.id;
+            const actualCount = memberCounts?.[group.id] ?? group.memberCount ?? 1;
             const initials = (() => {
               if (group.avatarInitials) return group.avatarInitials;
               const letters = group.name
@@ -117,14 +122,29 @@ export const GroupList: React.FC<GroupListProps> = ({
                   </div>
                   <p className="text-xs text-slate-600 truncate flex items-center gap-2">
                     <span className="font-semibold text-slate-700">
-                      {group.memberCount || 1} / {group.maxMembers || 10} members
+                      {actualCount} / {group.maxMembers || 10} members
                     </span>
                     <span>•</span>
                     <span>Code: {group.inviteCode}</span>
                   </p>
                 </div>
 
-                <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-blue-600 group-hover:translate-x-0.5 transition-all" />
+                {/* Edit settings icon button for leader / admin */}
+                {(isOwner || currentUser.role === 'admin') && onEditGroup && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onEditGroup(group);
+                    }}
+                    title="Edit group settings and badge"
+                    className="p-2 rounded-xl text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer shrink-0 min-h-[40px] min-w-[40px] flex items-center justify-center"
+                  >
+                    <Settings className="w-4 h-4" />
+                  </button>
+                )}
+
+                <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-blue-600 group-hover:translate-x-0.5 transition-all shrink-0" />
               </div>
             );
           })
