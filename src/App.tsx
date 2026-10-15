@@ -25,6 +25,8 @@ import { UserProfilePanel } from './components/UserProfilePanel';
 import { AdminUserManagement } from './components/AdminUserManagement';
 import { AdminGlobalSchedules } from './components/AdminGlobalSchedules';
 import { UserPersonalSchedules } from './components/UserPersonalSchedules';
+import { PWAInstallButton } from './components/PWAInstallButton';
+import { GooglePlayPublishModal } from './components/GooglePlayPublishModal';
 import { useOnlineStatus } from './lib/useOnlineStatus';
 import { alarmAudio } from './lib/alarmAudio';
 import {
@@ -38,6 +40,7 @@ import {
   Plus,
   KeyRound,
   Eye,
+  Smartphone,
 } from 'lucide-react';
 
 type AdminTab = 'groups' | 'schedules' | 'users';
@@ -65,6 +68,7 @@ function MainApp() {
   const [selectedSchedule, setSelectedSchedule] = useState<Schedule | null>(null);
   const [activeRingingSchedule, setActiveRingingSchedule] = useState<Schedule | null>(null);
   const [groupMemberCounts, setGroupMemberCounts] = useState<Record<string, number>>({});
+  const [isGooglePlayModalOpen, setIsGooglePlayModalOpen] = useState(false);
 
   const isAdmin = user?.role === 'admin';
   const isOnline = useOnlineStatus();
@@ -417,6 +421,20 @@ function MainApp() {
             </button>
           )}
 
+          {/* Install App button (PWA home screen install) */}
+          <PWAInstallButton onOpenGooglePlayModal={() => setIsGooglePlayModalOpen(true)} />
+
+          {/* Google Play Store Packaging Trigger */}
+          <button
+            onClick={() => setIsGooglePlayModalOpen(true)}
+            title="Pack & Publish Group Alarm to Google Play Store"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-xs hover:shadow transition-all cursor-pointer"
+          >
+            <Smartphone className="w-3.5 h-3.5 text-amber-400" />
+            <span className="hidden sm:inline">Google Play</span>
+            <span className="sm:hidden">Pack</span>
+          </button>
+
           {/* User Profile Panel Trigger */}
           {user && (
             <button
@@ -619,6 +637,7 @@ function MainApp() {
         <UserProfilePanel
           isOpen={isProfileOpen}
           onClose={() => setIsProfileOpen(false)}
+          onOpenGooglePlayModal={() => setIsGooglePlayModalOpen(true)}
         />
       )}
 
@@ -710,6 +729,12 @@ function MainApp() {
           }}
         />
       )}
+
+      {/* Google Play Store Packaging & Publishing Hub */}
+      <GooglePlayPublishModal
+        isOpen={isGooglePlayModalOpen}
+        onClose={() => setIsGooglePlayModalOpen(false)}
+      />
     </div>
   );
 }

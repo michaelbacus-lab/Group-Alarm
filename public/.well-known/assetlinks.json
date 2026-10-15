@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.groupalarm.app",
+      "sha256_cert_fingerprints": [
+        "14:6D:E9:EB:AB:52:4B:EB:EC:12:8C:AE:86:45:00:AE:49:D4:E8:4A:69:7B:10:E0:2E:7C:12:7C:20:BE:F4:F2"
+      ]
+    }
+  }
+]

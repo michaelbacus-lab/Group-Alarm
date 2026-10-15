@@ -11,6 +11,8 @@ import {
   Check,
   Sparkles,
   Users,
+  Smartphone,
+  ChevronRight,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useOnlineStatus } from '../lib/useOnlineStatus';
@@ -18,9 +20,14 @@ import { useOnlineStatus } from '../lib/useOnlineStatus';
 interface UserProfilePanelProps {
   isOpen: boolean;
   onClose: () => void;
+  onOpenGooglePlayModal?: () => void;
 }
 
-export const UserProfilePanel: React.FC<UserProfilePanelProps> = ({ isOpen, onClose }) => {
+export const UserProfilePanel: React.FC<UserProfilePanelProps> = ({
+  isOpen,
+  onClose,
+  onOpenGooglePlayModal,
+}) => {
   const { user, updateUserProfile, logout } = useAuth();
   const isOnline = useOnlineStatus();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -315,6 +322,40 @@ export const UserProfilePanel: React.FC<UserProfilePanelProps> = ({ isOpen, onCl
                 </div>
               </div>
             </div>
+
+            {/* Google Play Store Packaging Card */}
+            {onOpenGooglePlayModal && (
+              <div className="p-4 rounded-2xl bg-gradient-to-br from-slate-900 to-indigo-950 text-white space-y-2.5 shadow-md border border-slate-800">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-amber-300 flex items-center gap-1.5 uppercase text-[10px] tracking-wider">
+                    <Smartphone className="w-3.5 h-3.5" />
+                    <span>Android Distribution</span>
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-bold border border-emerald-400/30">
+                    Ready to Pack
+                  </span>
+                </div>
+
+                <div>
+                  <div className="text-xs font-bold text-white">Google Play Store Hub</div>
+                  <div className="text-[11px] text-slate-300 mt-0.5 leading-relaxed">
+                    Generate your Android App Bundle (.aab), configure TWA Digital AssetLinks, and follow the publication checklist.
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    onOpenGooglePlayModal();
+                  }}
+                  className="w-full py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                >
+                  <span>Open Packaging & Publish Guide</span>
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
